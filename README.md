@@ -2,48 +2,54 @@
 
 Personal calorie / workout / body-comp tracker with Whoop integration and AI coaching.
 
-## Run locally
+Stack: Next.js 15 · Postgres (Neon) · Tailwind · Recharts · Anthropic SDK.
+
+## Local development
 
 ```bash
-cd ~/Desktop/fitness-tracker
 npm install
-npm run init-db
-npm run dev
+cp .env.local.example .env.local   # fill in secrets
+npm run init-db                     # runs migrations, seeds profile if empty
+npm run dev                         # http://localhost:3000
 ```
 
-Then open http://localhost:3000
+Required env vars in `.env.local`:
+
+| | |
+|---|---|
+| `DATABASE_URL` | Neon Postgres connection string |
+| `WHOOP_CLIENT_ID` / `WHOOP_CLIENT_SECRET` | Whoop developer app |
+| `WHOOP_REDIRECT_URI` | `http://localhost:3000/api/whoop/callback` (or prod URL) |
+| `ANTHROPIC_API_KEY` | for AI Insights (optional) |
 
 ## Connecting Whoop
 
-1. At developer.whoop.com, set the redirect URI of your app to:
-   `http://localhost:3000/api/whoop/callback`
-2. Click **Connect Whoop** on the dashboard.
-3. After authorizing, hit **Sync Whoop** to pull recovery, sleep, strain, and workouts.
+1. At developer.whoop.com, register the redirect URI: `<your-host>/api/whoop/callback`
+2. Click **Connect Whoop** on the dashboard, authorize, then **Sync Whoop**.
 
-The first sync grabs the last 60 days. After that, click **Sync Whoop** whenever you want fresh data.
+First sync pulls 60 days of recovery, sleep, strain, and workouts. Click Sync any time.
 
-## AI insights
+## Deploying to Vercel
 
-Add `ANTHROPIC_API_KEY=sk-ant-...` to `.env.local` and restart `npm run dev`.
-The Insights page calls Claude Haiku once per click (cheap, credits-conscious).
+1. Push to GitHub (private repo is fine).
+2. Vercel → New Project → import the repo.
+3. Add env vars under **Project Settings → Environment Variables**:
+   - `DATABASE_URL` (the Neon connection string)
+   - `WHOOP_CLIENT_ID`, `WHOOP_CLIENT_SECRET`
+   - `WHOOP_REDIRECT_URI` = `https://<your-vercel-domain>/api/whoop/callback`
+   - `ANTHROPIC_API_KEY`
+4. Deploy.
+5. Update the Whoop redirect URI in the Whoop developer dashboard to match the Vercel URL.
 
-## Deploying so you can hit it from your phone
-
-**Easiest (free):** push this repo to GitHub, deploy on Vercel.
-- SQLite won't work on Vercel serverless. Swap to Postgres:
-  - Use Vercel Postgres or Neon (free tier).
-  - Replace `better-sqlite3` calls in `lib/db.ts` with a Postgres client (`pg` or `@neondatabase/serverless`). Schema translates 1:1 except change `INTEGER PRIMARY KEY AUTOINCREMENT` → `SERIAL PRIMARY KEY`, `TEXT DEFAULT CURRENT_TIMESTAMP` → `TIMESTAMPTZ DEFAULT NOW()`.
-- Set the Whoop redirect URI to your deployed URL + `/api/whoop/callback`.
-
-**Easier alternative — keep it local, access from phone:**
-- On the same Wi-Fi: run `npm run dev` and visit `http://<your-mac-ip>:3000` from your phone.
-- Anywhere: install Tailscale on Mac + phone, hit your Mac's tailnet IP. Or use `ngrok http 3000` for a public URL.
+Schema migrations run automatically on the first DB call (idempotent `CREATE TABLE IF NOT EXISTS`).
 
 ## Files
 
 - `app/` — Next.js App Router pages and API routes
-- `lib/db.ts` — SQLite + migrations
+- `lib/db.ts` — Neon Postgres client + schema migrations
 - `lib/targets.ts` — Calorie/protein math (Katch-McArdle)
-- `lib/whoop.ts` — OAuth + API client + sync
+- `lib/whoop.ts` — OAuth + API client + sync + de-dupe
 - `lib/insights.ts` — Anthropic call
-- `data/fitness.db` — SQLite file (gitignored)
+- `lib/redFlags.ts` — Whoop-data warning detection
+- `lib/schedule.ts` — Weekly calendar + smart "what's tomorrow" recommendation
+- `lib/workoutPlan.ts` — 5-day Push/Pull/Legs/Upper/Legs split templates

@@ -1,24 +1,25 @@
-import Database from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+import { neon } from "@neondatabase/serverless";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_PATH = path.join(DATA_DIR, "fitness.db");
-
-let _db: Database.Database | null = null;
-
-export function db(): Database.Database {
-  if (_db) return _db;
-  _db = new Database(DB_PATH);
-  _db.pragma("journal_mode = WAL");
-  _db.pragma("foreign_keys = ON");
-  migrate(_db);
-  return _db;
+if (!process.env.DATABASE_URL) {
+  throw new Error("DATABASE_URL is not set. Add it to .env.local (Neon connection string).");
 }
 
-function migrate(d: Database.Database) {
-  d.exec(`
+export const sql = neon(process.env.DATABASE_URL);
+
+let _migrated = false;
+let _migrating: Promise<void> | null = null;
+
+export async function ensureMigrated(): Promise<void> {
+  if (_migrated) return;
+  if (_migrating) return _migrating;
+  _migrating = runMigrations().then(() => {
+    _migrated = true;
+  });
+  return _migrating;
+}
+
+async function runMigrations() {
+  await sql`
     CREATE TABLE IF NOT EXISTS profile (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       name TEXT,
@@ -32,10 +33,12 @@ function migrate(d: Database.Database) {
       activity_level TEXT,
       calorie_target INTEGER,
       protein_target_g INTEGER,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`;
+  await sql`ALTER TABLE profile ADD COLUMN IF NOT EXISTS goal_weight_kg REAL`;
 
+  await sql`
     CREATE TABLE IF NOT EXISTS daily_log (
       date TEXT PRIMARY KEY,
       calories INTEGER DEFAULT 0,
@@ -43,21 +46,23 @@ function migrate(d: Database.Database) {
       weight_kg REAL,
       body_fat_pct REAL,
       notes TEXT,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`;
 
+  await sql`
     CREATE TABLE IF NOT EXISTS food_entry (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       date TEXT NOT NULL,
       name TEXT NOT NULL,
       calories INTEGER NOT NULL,
       protein_g INTEGER NOT NULL,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE INDEX IF NOT EXISTS idx_food_date ON food_entry(date);
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_food_date ON food_entry(date)`;
 
+  await sql`
     CREATE TABLE IF NOT EXISTS workout (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id SERIAL PRIMARY KEY,
       date TEXT NOT NULL,
       type TEXT NOT NULL,
       duration_min INTEGER,
@@ -70,36 +75,45 @@ function migrate(d: Database.Database) {
       strain REAL,
       template_key TEXT,
       hidden INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_external ON workout(source, external_id) WHERE external_id IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS idx_workout_date ON workout(date);
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )`;
+  await sql`ALTER TABLE workout ADD COLUMN IF NOT EXISTS start_at TEXT`;
+  await sql`ALTER TABLE workout ADD COLUMN IF NOT EXISTS end_at TEXT`;
+  await sql`ALTER TABLE workout ADD COLUMN IF NOT EXISTS strain REAL`;
+  await sql`ALTER TABLE workout ADD COLUMN IF NOT EXISTS template_key TEXT`;
+  await sql`ALTER TABLE workout ADD COLUMN IF NOT EXISTS hidden INTEGER DEFAULT 0`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_external ON workout(source, external_id) WHERE external_id IS NOT NULL`;
+  await sql`CREATE INDEX IF NOT EXISTS idx_workout_date ON workout(date)`;
 
+  await sql`
     CREATE TABLE IF NOT EXISTS whoop_token (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       access_token TEXT NOT NULL,
       refresh_token TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
+      expires_at BIGINT NOT NULL,
       scope TEXT,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-    );
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )`;
 
+  await sql`
     CREATE TABLE IF NOT EXISTS whoop_recovery (
       date TEXT PRIMARY KEY,
       score INTEGER,
       hrv_rmssd_ms REAL,
       resting_hr INTEGER,
       raw TEXT
-    );
+    )`;
 
+  await sql`
     CREATE TABLE IF NOT EXISTS whoop_sleep (
       date TEXT PRIMARY KEY,
       duration_min INTEGER,
       efficiency_pct REAL,
       performance_pct REAL,
       raw TEXT
-    );
+    )`;
 
+  await sql`
     CREATE TABLE IF NOT EXISTS whoop_cycle (
       date TEXT PRIMARY KEY,
       strain REAL,
@@ -107,19 +121,7 @@ function migrate(d: Database.Database) {
       avg_hr INTEGER,
       max_hr INTEGER,
       raw TEXT
-    );
-  `);
-
-  const profileCols = d.prepare("PRAGMA table_info(profile)").all() as Array<{ name: string }>;
-  if (!profileCols.some((c) => c.name === "goal_weight_kg")) d.exec("ALTER TABLE profile ADD COLUMN goal_weight_kg REAL");
-
-  const workoutCols = d.prepare("PRAGMA table_info(workout)").all() as Array<{ name: string }>;
-  const hasW = (n: string) => workoutCols.some((c) => c.name === n);
-  if (!hasW("start_at")) d.exec("ALTER TABLE workout ADD COLUMN start_at TEXT");
-  if (!hasW("end_at")) d.exec("ALTER TABLE workout ADD COLUMN end_at TEXT");
-  if (!hasW("strain")) d.exec("ALTER TABLE workout ADD COLUMN strain REAL");
-  if (!hasW("template_key")) d.exec("ALTER TABLE workout ADD COLUMN template_key TEXT");
-  if (!hasW("hidden")) d.exec("ALTER TABLE workout ADD COLUMN hidden INTEGER DEFAULT 0");
+    )`;
 }
 
 export type Profile = {
@@ -137,41 +139,40 @@ export type Profile = {
   protein_target_g: number | null;
 };
 
-export function getProfile(): Profile | null {
-  return db().prepare("SELECT * FROM profile WHERE id = 1").get() as Profile | null;
+export async function getProfile(): Promise<Profile | null> {
+  await ensureMigrated();
+  const rows = (await sql`SELECT * FROM profile WHERE id = 1`) as any[];
+  return (rows[0] as Profile) ?? null;
 }
 
-export function upsertProfile(p: Partial<Profile>) {
-  const existing = getProfile();
+export async function upsertProfile(p: Partial<Profile>): Promise<void> {
+  await ensureMigrated();
+  const existing = await getProfile();
   if (!existing) {
-    db()
-      .prepare(
-        `INSERT INTO profile (id, name, sex, age, height_cm, weight_kg, body_fat_pct, goal_body_fat_pct, goal_weight_kg, activity_level, calorie_target, protein_target_g)
-         VALUES (1, @name, @sex, @age, @height_cm, @weight_kg, @body_fat_pct, @goal_body_fat_pct, @goal_weight_kg, @activity_level, @calorie_target, @protein_target_g)`,
-      )
-      .run({
-        name: p.name ?? null,
-        sex: p.sex ?? null,
-        age: p.age ?? null,
-        height_cm: p.height_cm ?? null,
-        weight_kg: p.weight_kg ?? null,
-        body_fat_pct: p.body_fat_pct ?? null,
-        goal_body_fat_pct: p.goal_body_fat_pct ?? null,
-        goal_weight_kg: p.goal_weight_kg ?? null,
-        activity_level: p.activity_level ?? null,
-        calorie_target: p.calorie_target ?? null,
-        protein_target_g: p.protein_target_g ?? null,
-      });
+    await sql`
+      INSERT INTO profile (id, name, sex, age, height_cm, weight_kg, body_fat_pct,
+        goal_body_fat_pct, goal_weight_kg, activity_level, calorie_target, protein_target_g)
+      VALUES (1, ${p.name ?? null}, ${p.sex ?? null}, ${p.age ?? null},
+        ${p.height_cm ?? null}, ${p.weight_kg ?? null}, ${p.body_fat_pct ?? null},
+        ${p.goal_body_fat_pct ?? null}, ${p.goal_weight_kg ?? null},
+        ${p.activity_level ?? null}, ${p.calorie_target ?? null}, ${p.protein_target_g ?? null})`;
   } else {
-    const merged = { ...existing, ...p };
-    db()
-      .prepare(
-        `UPDATE profile SET name=@name, sex=@sex, age=@age, height_cm=@height_cm, weight_kg=@weight_kg,
-         body_fat_pct=@body_fat_pct, goal_body_fat_pct=@goal_body_fat_pct, goal_weight_kg=@goal_weight_kg,
-         activity_level=@activity_level, calorie_target=@calorie_target, protein_target_g=@protein_target_g,
-         updated_at=CURRENT_TIMESTAMP WHERE id = 1`,
-      )
-      .run(merged);
+    const m = { ...existing, ...p };
+    await sql`
+      UPDATE profile SET
+        name = ${m.name},
+        sex = ${m.sex},
+        age = ${m.age},
+        height_cm = ${m.height_cm},
+        weight_kg = ${m.weight_kg},
+        body_fat_pct = ${m.body_fat_pct},
+        goal_body_fat_pct = ${m.goal_body_fat_pct},
+        goal_weight_kg = ${m.goal_weight_kg},
+        activity_level = ${m.activity_level},
+        calorie_target = ${m.calorie_target},
+        protein_target_g = ${m.protein_target_g},
+        updated_at = NOW()
+      WHERE id = 1`;
   }
 }
 

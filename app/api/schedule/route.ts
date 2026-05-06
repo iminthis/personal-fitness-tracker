@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql, ensureMigrated } from "@/lib/db";
 import { buildCalendar, recommendNextSession } from "@/lib/schedule";
 
 export async function GET() {
+  await ensureMigrated();
   const today = new Date();
   const start = new Date(today);
   start.setDate(start.getDate() - 7);
@@ -12,12 +13,11 @@ export async function GET() {
   const startISO = start.toISOString().slice(0, 10);
   const endISO = end.toISOString().slice(0, 10);
 
-  const rows = db()
-    .prepare(
-      `SELECT id, date, type, template_key, duration_min, intensity FROM workout
-       WHERE date BETWEEN ? AND ? AND hidden = 0 ORDER BY date ASC, id ASC`,
-    )
-    .all(startISO, endISO) as Array<{
+  const rows = (await sql`
+    SELECT id, date, type, template_key, duration_min, intensity FROM workout
+    WHERE date BETWEEN ${startISO} AND ${endISO} AND hidden = 0
+    ORDER BY date ASC, id ASC
+  `) as Array<{
     id: number;
     date: string;
     type: string;
@@ -27,9 +27,7 @@ export async function GET() {
   }>;
 
   const byDate: Record<string, typeof rows> = {};
-  for (const r of rows) {
-    (byDate[r.date] ??= []).push(r);
-  }
+  for (const r of rows) (byDate[r.date] ??= []).push(r);
 
   const calendar = buildCalendar({
     today,

@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getProfile, upsertProfile } from "@/lib/db";
+import { getProfile, upsertProfile, ensureMigrated } from "@/lib/db";
 import { suggestTargets } from "@/lib/targets";
 
 export async function GET() {
-  return NextResponse.json({ profile: getProfile() });
+  await ensureMigrated();
+  return NextResponse.json({ profile: await getProfile() });
 }
 
 export async function POST(req: NextRequest) {
+  await ensureMigrated();
   const body = await req.json();
   const profile: any = {
     name: body.name ?? null,
@@ -32,6 +34,6 @@ export async function POST(req: NextRequest) {
     profile.calorie_target = t.calories;
     profile.protein_target_g = t.proteinG;
   }
-  upsertProfile(profile);
-  return NextResponse.json({ ok: true, profile: getProfile() });
+  await upsertProfile(profile);
+  return NextResponse.json({ ok: true, profile: await getProfile() });
 }

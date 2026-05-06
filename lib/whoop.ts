@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { sql, ensureMigrated } from "./db";
 
 const WHOOP_AUTH = "https://api.prod.whoop.com/oauth/oauth2/auth";
 const WHOOP_TOKEN = "https://api.prod.whoop.com/oauth/oauth2/token";
@@ -67,18 +67,23 @@ export async function refreshTokens(refreshToken: string): Promise<TokenResp> {
   return r.json();
 }
 
-export function saveTokens(t: TokenResp) {
+export async function saveTokens(t: TokenResp) {
+  await ensureMigrated();
   const expiresAt = Date.now() + t.expires_in * 1000;
-  const d = db();
-  const exists = d.prepare("SELECT id FROM whoop_token WHERE id = 1").get();
-  if (exists) {
-    d.prepare(
-      `UPDATE whoop_token SET access_token=?, refresh_token=?, expires_at=?, scope=?, updated_at=CURRENT_TIMESTAMP WHERE id = 1`,
-    ).run(t.access_token, t.refresh_token, expiresAt, t.scope);
+  const existing = (await sql`SELECT id FROM whoop_token WHERE id = 1`) as any[];
+  if (existing.length) {
+    await sql`
+      UPDATE whoop_token
+      SET access_token = ${t.access_token},
+          refresh_token = ${t.refresh_token},
+          expires_at = ${expiresAt},
+          scope = ${t.scope},
+          updated_at = NOW()
+      WHERE id = 1`;
   } else {
-    d.prepare(
-      `INSERT INTO whoop_token (id, access_token, refresh_token, expires_at, scope) VALUES (1, ?, ?, ?, ?)`,
-    ).run(t.access_token, t.refresh_token, expiresAt, t.scope);
+    await sql`
+      INSERT INTO whoop_token (id, access_token, refresh_token, expires_at, scope)
+      VALUES (1, ${t.access_token}, ${t.refresh_token}, ${expiresAt}, ${t.scope})`;
   }
 }
 
@@ -89,18 +94,21 @@ type StoredToken = {
   scope: string;
 };
 
-export function getStoredToken(): StoredToken | null {
-  return db().prepare("SELECT access_token, refresh_token, expires_at, scope FROM whoop_token WHERE id = 1").get() as
-    | StoredToken
-    | null;
+export async function getStoredToken(): Promise<StoredToken | null> {
+  await ensureMigrated();
+  const rows = (await sql`
+    SELECT access_token, refresh_token, expires_at, scope FROM whoop_token WHERE id = 1
+  `) as any[];
+  return rows[0] ?? null;
 }
 
 export async function getAccessToken(): Promise<string | null> {
-  const tok = getStoredToken();
+  const tok = await getStoredToken();
   if (!tok) return null;
-  if (Date.now() < tok.expires_at - 60_000) return tok.access_token;
+  const expiresAt = Number(tok.expires_at);
+  if (Date.now() < expiresAt - 60_000) return tok.access_token;
   const refreshed = await refreshTokens(tok.refresh_token);
-  saveTokens(refreshed);
+  await saveTokens(refreshed);
   return refreshed.access_token;
 }
 
@@ -127,48 +135,24 @@ function dateOnly(iso: string, tzOffset?: string | null) {
 }
 
 export async function syncWhoop(daysBack = 30) {
+  await ensureMigrated();
   const start = new Date(Date.now() - daysBack * 86400_000).toISOString();
   const end = new Date().toISOString();
 
-  const d = db();
-  const upRec = d.prepare(
-    `INSERT INTO whoop_recovery (date, score, hrv_rmssd_ms, resting_hr, raw)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(date) DO UPDATE SET score=excluded.score, hrv_rmssd_ms=excluded.hrv_rmssd_ms,
-       resting_hr=excluded.resting_hr, raw=excluded.raw`,
-  );
-  const upSleep = d.prepare(
-    `INSERT INTO whoop_sleep (date, duration_min, efficiency_pct, performance_pct, raw)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(date) DO UPDATE SET duration_min=excluded.duration_min, efficiency_pct=excluded.efficiency_pct,
-       performance_pct=excluded.performance_pct, raw=excluded.raw`,
-  );
-  const upCycle = d.prepare(
-    `INSERT INTO whoop_cycle (date, strain, kilojoule, avg_hr, max_hr, raw)
-     VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT(date) DO UPDATE SET strain=excluded.strain, kilojoule=excluded.kilojoule,
-       avg_hr=excluded.avg_hr, max_hr=excluded.max_hr, raw=excluded.raw`,
-  );
-  const upWorkout = d.prepare(
-    `INSERT INTO workout (date, type, duration_min, intensity, notes, source, external_id, start_at, end_at, strain)
-     VALUES (?, ?, ?, ?, ?, 'whoop', ?, ?, ?, ?)
-     ON CONFLICT(source, external_id) WHERE external_id IS NOT NULL DO UPDATE SET date=excluded.date, type=excluded.type,
-       duration_min=excluded.duration_min, intensity=excluded.intensity, notes=excluded.notes,
-       start_at=excluded.start_at, end_at=excluded.end_at, strain=excluded.strain`,
-  );
-
-  const counters = { recovery: 0, sleep: 0, cycle: 0, workout: 0 };
+  const counters = { recovery: 0, sleep: 0, cycle: 0, workout: 0, merged: 0 };
 
   const recoveries = await collect("/v2/recovery", { start, end });
   for (const r of recoveries) {
     const date = dateOnly(r.created_at ?? r.updated_at ?? new Date().toISOString(), r.timezone_offset);
-    upRec.run(
-      date,
-      r.score?.recovery_score ?? null,
-      r.score?.hrv_rmssd_milli ?? null,
-      r.score?.resting_heart_rate ?? null,
-      JSON.stringify(r),
-    );
+    await sql`
+      INSERT INTO whoop_recovery (date, score, hrv_rmssd_ms, resting_hr, raw)
+      VALUES (${date}, ${r.score?.recovery_score ?? null}, ${r.score?.hrv_rmssd_milli ?? null},
+              ${r.score?.resting_heart_rate ?? null}, ${JSON.stringify(r)})
+      ON CONFLICT (date) DO UPDATE SET
+        score = EXCLUDED.score,
+        hrv_rmssd_ms = EXCLUDED.hrv_rmssd_ms,
+        resting_hr = EXCLUDED.resting_hr,
+        raw = EXCLUDED.raw`;
     counters.recovery++;
   }
 
@@ -176,29 +160,34 @@ export async function syncWhoop(daysBack = 30) {
   for (const s of sleeps) {
     const date = dateOnly(s.start ?? s.created_at, s.timezone_offset);
     const stage = s.score?.stage_summary;
-    const totalMs =
-      (stage?.total_in_bed_time_milli ?? 0) - (stage?.total_awake_time_milli ?? 0);
-    upSleep.run(
-      date,
-      Math.round(totalMs / 60000) || null,
-      s.score?.sleep_efficiency_percentage ?? null,
-      s.score?.sleep_performance_percentage ?? null,
-      JSON.stringify(s),
-    );
+    const totalMs = (stage?.total_in_bed_time_milli ?? 0) - (stage?.total_awake_time_milli ?? 0);
+    const dur = Math.round(totalMs / 60000) || null;
+    await sql`
+      INSERT INTO whoop_sleep (date, duration_min, efficiency_pct, performance_pct, raw)
+      VALUES (${date}, ${dur}, ${s.score?.sleep_efficiency_percentage ?? null},
+              ${s.score?.sleep_performance_percentage ?? null}, ${JSON.stringify(s)})
+      ON CONFLICT (date) DO UPDATE SET
+        duration_min = EXCLUDED.duration_min,
+        efficiency_pct = EXCLUDED.efficiency_pct,
+        performance_pct = EXCLUDED.performance_pct,
+        raw = EXCLUDED.raw`;
     counters.sleep++;
   }
 
   const cycles = await collect("/v2/cycle", { start, end });
   for (const c of cycles) {
     const date = dateOnly(c.start ?? c.created_at, c.timezone_offset);
-    upCycle.run(
-      date,
-      c.score?.strain ?? null,
-      c.score?.kilojoule ?? null,
-      c.score?.average_heart_rate ?? null,
-      c.score?.max_heart_rate ?? null,
-      JSON.stringify(c),
-    );
+    await sql`
+      INSERT INTO whoop_cycle (date, strain, kilojoule, avg_hr, max_hr, raw)
+      VALUES (${date}, ${c.score?.strain ?? null}, ${c.score?.kilojoule ?? null},
+              ${c.score?.average_heart_rate ?? null}, ${c.score?.max_heart_rate ?? null},
+              ${JSON.stringify(c)})
+      ON CONFLICT (date) DO UPDATE SET
+        strain = EXCLUDED.strain,
+        kilojoule = EXCLUDED.kilojoule,
+        avg_hr = EXCLUDED.avg_hr,
+        max_hr = EXCLUDED.max_hr,
+        raw = EXCLUDED.raw`;
     counters.cycle++;
   }
 
@@ -207,36 +196,36 @@ export async function syncWhoop(daysBack = 30) {
     const date = dateOnly(w.start, w.timezone_offset);
     const startT = new Date(w.start).getTime();
     const endT = new Date(w.end).getTime();
-    const durMin = Math.round((endT - startT) / 60000);
+    const durMin = Math.round((endT - startT) / 60000) || null;
     const sport = w.sport_name ?? `Sport ${w.sport_id ?? "?"}`;
     const strain = w.score?.strain ?? null;
-    upWorkout.run(
-      date,
-      sport,
-      durMin || null,
-      strain != null ? `Strain ${strain.toFixed(1)}` : null,
-      `Avg HR ${w.score?.average_heart_rate ?? "?"}, kJ ${w.score?.kilojoule ?? "?"}`,
-      String(w.id),
-      w.start ?? null,
-      w.end ?? null,
-      strain,
-    );
+    const intensity = strain != null ? `Strain ${strain.toFixed(1)}` : null;
+    const notes = `Avg HR ${w.score?.average_heart_rate ?? "?"}, kJ ${w.score?.kilojoule ?? "?"}`;
+    await sql`
+      INSERT INTO workout (date, type, duration_min, intensity, notes, source, external_id, start_at, end_at, strain)
+      VALUES (${date}, ${sport}, ${durMin}, ${intensity}, ${notes}, 'whoop', ${String(w.id)},
+              ${w.start ?? null}, ${w.end ?? null}, ${strain})
+      ON CONFLICT (source, external_id) WHERE external_id IS NOT NULL DO UPDATE SET
+        date = EXCLUDED.date,
+        type = EXCLUDED.type,
+        duration_min = EXCLUDED.duration_min,
+        intensity = EXCLUDED.intensity,
+        notes = EXCLUDED.notes,
+        start_at = EXCLUDED.start_at,
+        end_at = EXCLUDED.end_at,
+        strain = EXCLUDED.strain`;
     counters.workout++;
   }
 
-  const merged = dedupeWhoopWorkouts();
-
-  return { ...counters, merged };
+  counters.merged = await dedupeWhoopWorkouts();
+  return counters;
 }
 
-function dedupeWhoopWorkouts() {
-  const d = db();
-  const all = d
-    .prepare(
-      `SELECT id, date, type, start_at, end_at, strain, duration_min FROM workout
-       WHERE source='whoop' AND start_at IS NOT NULL AND end_at IS NOT NULL`,
-    )
-    .all() as Array<{
+async function dedupeWhoopWorkouts(): Promise<number> {
+  const all = (await sql`
+    SELECT id, date, type, start_at, end_at, strain, duration_min FROM workout
+    WHERE source = 'whoop' AND start_at IS NOT NULL AND end_at IS NOT NULL
+  `) as Array<{
     id: number;
     date: string;
     type: string;
@@ -246,7 +235,7 @@ function dedupeWhoopWorkouts() {
     duration_min: number | null;
   }>;
 
-  d.prepare(`UPDATE workout SET hidden = 0 WHERE source='whoop'`).run();
+  await sql`UPDATE workout SET hidden = 0 WHERE source = 'whoop'`;
 
   const buckets = new Map<string, typeof all>();
   for (const w of all) {
@@ -257,8 +246,6 @@ function dedupeWhoopWorkouts() {
   }
 
   let merged = 0;
-  const hide = d.prepare(`UPDATE workout SET hidden = 1 WHERE id = ?`);
-
   for (const group of buckets.values()) {
     if (group.length < 2) continue;
     const sorted = [...group].sort(
@@ -276,7 +263,7 @@ function dedupeWhoopWorkouts() {
         return shorter > 0 && overlap / shorter > 0.5;
       });
       if (overlapsKept) {
-        hide.run(w.id);
+        await sql`UPDATE workout SET hidden = 1 WHERE id = ${w.id}`;
         merged++;
       } else {
         kept.push(w);

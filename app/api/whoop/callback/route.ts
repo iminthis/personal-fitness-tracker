@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const tok = await exchangeCode(code);
-    saveTokens(tok);
+    await saveTokens(tok);
   } catch (e: any) {
     return NextResponse.json({ error: e.message }, { status: 500 });
   }

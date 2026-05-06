@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { db, getProfile } from "./db";
+import { sql, getProfile, ensureMigrated } from "./db";
 
 export type InsightContext = {
-  profile: ReturnType<typeof getProfile>;
+  profile: Awaited<ReturnType<typeof getProfile>>;
   recentDays: Array<{
     date: string;
     calories: number;
@@ -17,32 +17,31 @@ export type InsightContext = {
   }>;
 };
 
-export function buildContext(days = 14): InsightContext {
-  const profile = getProfile();
-  const d = db();
-  const rows = d
-    .prepare(
-      `WITH dates AS (
-         SELECT date(julianday('now', 'localtime') - n) AS date
-         FROM (SELECT 0 AS n UNION SELECT 1 UNION SELECT 2 UNION SELECT 3 UNION SELECT 4 UNION SELECT 5
-               UNION SELECT 6 UNION SELECT 7 UNION SELECT 8 UNION SELECT 9 UNION SELECT 10 UNION SELECT 11
-               UNION SELECT 12 UNION SELECT 13)
-         WHERE n < ?
-       )
-       SELECT d.date,
-         COALESCE((SELECT SUM(calories) FROM food_entry f WHERE f.date = d.date), 0) AS calories,
-         COALESCE((SELECT SUM(protein_g) FROM food_entry f WHERE f.date = d.date), 0) AS protein_g,
-         (SELECT weight_kg FROM daily_log dl WHERE dl.date = d.date) AS weight_kg,
-         COALESCE((SELECT COUNT(*) FROM workout w WHERE w.date = d.date), 0) AS workouts,
-         (SELECT score FROM whoop_recovery wr WHERE wr.date = d.date) AS recovery,
-         (SELECT hrv_rmssd_ms FROM whoop_recovery wr WHERE wr.date = d.date) AS hrv,
-         (SELECT resting_hr FROM whoop_recovery wr WHERE wr.date = d.date) AS rhr,
-         (SELECT duration_min FROM whoop_sleep ws WHERE ws.date = d.date) AS sleep_min,
-         (SELECT strain FROM whoop_cycle wc WHERE wc.date = d.date) AS strain
-       FROM dates d
-       ORDER BY d.date DESC`,
+export async function buildContext(days = 14): Promise<InsightContext> {
+  await ensureMigrated();
+  const profile = await getProfile();
+  const rows = (await sql`
+    WITH dates AS (
+      SELECT to_char(d, 'YYYY-MM-DD') AS date
+      FROM generate_series(
+        (CURRENT_DATE - ((${days - 1})::int || ' days')::interval)::date,
+        CURRENT_DATE::date,
+        '1 day'::interval
+      ) AS d
     )
-    .all(days) as InsightContext["recentDays"];
+    SELECT d.date,
+      COALESCE((SELECT SUM(calories) FROM food_entry f WHERE f.date = d.date), 0)::int AS calories,
+      COALESCE((SELECT SUM(protein_g) FROM food_entry f WHERE f.date = d.date), 0)::int AS protein_g,
+      (SELECT weight_kg FROM daily_log dl WHERE dl.date = d.date) AS weight_kg,
+      COALESCE((SELECT COUNT(*) FROM workout w WHERE w.date = d.date AND w.hidden = 0), 0)::int AS workouts,
+      (SELECT score FROM whoop_recovery wr WHERE wr.date = d.date) AS recovery,
+      (SELECT hrv_rmssd_ms FROM whoop_recovery wr WHERE wr.date = d.date) AS hrv,
+      (SELECT resting_hr FROM whoop_recovery wr WHERE wr.date = d.date) AS rhr,
+      (SELECT duration_min FROM whoop_sleep ws WHERE ws.date = d.date) AS sleep_min,
+      (SELECT strain FROM whoop_cycle wc WHERE wc.date = d.date) AS strain
+    FROM dates d
+    ORDER BY d.date DESC
+  `) as InsightContext["recentDays"];
   return { profile, recentDays: rows };
 }
 
@@ -51,12 +50,12 @@ export async function generateInsights(): Promise<{ markdown: string; tokensUsed
   if (!apiKey) {
     return {
       markdown:
-        "**No Anthropic API key set.** Add `ANTHROPIC_API_KEY` to `.env.local` and restart the dev server to enable AI coaching insights.",
+        "**No Anthropic API key set.** Add `ANTHROPIC_API_KEY` to your environment to enable AI coaching insights.",
       tokensUsed: 0,
     };
   }
 
-  const ctx = buildContext(14);
+  const ctx = await buildContext(14);
   const client = new Anthropic({ apiKey });
 
   const sys = `You are a concise, data-driven fitness coach. Respond in markdown with three short sections:
