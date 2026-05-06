@@ -103,29 +103,40 @@ export function recommendNextSession(calendar: CalendarDay[]): {
   key: string;
   name: string;
   reason: string;
+  targetsToday: boolean;
 } {
-  const past5 = calendar.filter((d) => d.isPast || d.isToday).slice(-5);
-  const recentKeys = past5
+  const todayIdx = calendar.findIndex((d) => d.isToday);
+  const today = calendar[todayIdx];
+  const todayTrained = today?.loggedWorkouts.some(
+    (w) => w.template_key && PRIMARY_LIFTS.includes(w.template_key),
+  );
+
+  const targetIdx = todayTrained ? todayIdx + 1 : todayIdx;
+  const target = calendar[targetIdx] ?? calendar[0];
+  const targetsToday = !todayTrained;
+
+  const lookback = calendar.slice(Math.max(0, targetIdx - 5), targetIdx);
+  const recentKeys = lookback
     .map((d) => d.inferredKey)
     .filter((k): k is string => k != null);
 
-  const lastTrainedDay: Record<string, number> = {};
-  past5.forEach((d, idx) => {
-    if (d.inferredKey) lastTrainedDay[d.inferredKey] = idx;
+  const lastTrainedIdx: Record<string, number> = {};
+  lookback.forEach((d, i) => {
+    if (d.inferredKey) lastTrainedIdx[d.inferredKey] = i;
   });
 
-  const todayIdx = calendar.findIndex((d) => d.isToday);
-  const tomorrow = calendar[todayIdx + 1] ?? calendar[0];
-  const consecutive = countConsecutiveTrained(calendar, todayIdx);
-
+  const consecutive = countConsecutiveBackFrom(calendar, targetIdx - 1);
   const missing = PRIMARY_LIFTS.filter((k) => !recentKeys.includes(k));
+
+  const dayLabel = targetsToday ? "today" : "tomorrow";
 
   if (consecutive >= 5 || (consecutive >= 4 && missing.length === 0)) {
     return {
-      date: tomorrow.date,
+      date: target.date,
       key: "active_recovery",
       name: "Active recovery",
-      reason: `You've trained ${consecutive} days in a row with no fresh muscle group to target. Take a recovery day.`,
+      reason: `You've trained ${consecutive} days in a row with no fresh muscle group to target. Take ${dayLabel} as a recovery day.`,
+      targetsToday,
     };
   }
 
@@ -134,28 +145,30 @@ export function recommendNextSession(calendar: CalendarDay[]): {
     const tmpl = findTemplate(next);
     const muscleHit = (TEMPLATE_MUSCLE_GROUPS[next] ?? []).join("/");
     return {
-      date: tomorrow.date,
+      date: target.date,
       key: next,
       name: tmpl?.name ?? next,
-      reason: `${muscleHit} hasn't been trained in your last ${past5.length} sessions — hit it tomorrow.`,
+      reason: `${muscleHit} hasn't been trained in your last ${lookback.length} sessions — hit it ${dayLabel}.`,
+      targetsToday,
     };
   }
 
   const oldest = PRIMARY_LIFTS
-    .map((k) => ({ k, idx: lastTrainedDay[k] ?? -1 }))
+    .map((k) => ({ k, idx: lastTrainedIdx[k] ?? -1 }))
     .sort((a, b) => a.idx - b.idx)[0];
   const tmpl = findTemplate(oldest.k);
   return {
-    date: tomorrow.date,
+    date: target.date,
     key: oldest.k,
     name: tmpl?.name ?? oldest.k,
-    reason: "All major groups hit recently — rotate to the one you trained least recently.",
+    reason: `All major groups hit recently — ${dayLabel} rotate to the one you trained least recently.`,
+    targetsToday,
   };
 }
 
-function countConsecutiveTrained(cal: CalendarDay[], todayIdx: number): number {
+function countConsecutiveBackFrom(cal: CalendarDay[], startIdx: number): number {
   let n = 0;
-  for (let i = todayIdx; i >= 0; i--) {
+  for (let i = startIdx; i >= 0; i--) {
     const d = cal[i];
     const trained = d.loggedWorkouts.some((w) => {
       const k = w.template_key;

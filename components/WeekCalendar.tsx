@@ -14,7 +14,7 @@ type Day = {
   inferredKey: string | null;
 };
 
-type Recommendation = { date: string; key: string; name: string; reason: string };
+type Recommendation = { date: string; key: string; name: string; reason: string; targetsToday: boolean };
 
 const KEY_COLORS: Record<string, string> = {
   push: "#22d3ee",
@@ -69,7 +69,7 @@ export function WeekCalendar() {
     <div className="space-y-4">
       {rec && (
         <div className="panel border-accent/40 bg-accent/5 p-4">
-          <div className="text-xs uppercase tracking-wider text-accent mb-1">Tomorrow</div>
+          <div className="text-xs uppercase tracking-wider text-accent mb-1">{rec.targetsToday ? "Today" : "Tomorrow"}</div>
           <div className="text-lg font-medium">{rec.name}</div>
           <div className="text-sm text-muted mt-1">{rec.reason}</div>
         </div>
@@ -83,8 +83,8 @@ export function WeekCalendar() {
             const cardio = d.loggedWorkouts.filter((w) => w.template_key === "z2_row" || w.type.toLowerCase() === "rowing");
             const hasLogged = lifts.length > 0 || cardio.length > 0;
             const showLogged = d.isPast || (d.isToday && hasLogged);
-            const tomorrowKey = rec && d.isTomorrow ? rec.key : d.suggestedKey;
-            const displayKey = showLogged ? d.inferredKey || "active_recovery" : tomorrowKey;
+            const recOverride = rec && d.date === rec.date ? rec.key : null;
+            const displayKey = showLogged ? d.inferredKey || "active_recovery" : recOverride ?? d.suggestedKey;
             const color = displayKey ? KEY_COLORS[displayKey] ?? "#3f3f46" : "#3f3f46";
 
             return (
