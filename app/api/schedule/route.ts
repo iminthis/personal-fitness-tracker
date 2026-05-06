@@ -1,17 +1,23 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { sql, ensureMigrated } from "@/lib/db";
 import { buildCalendar, recommendNextSession } from "@/lib/schedule";
 
-export async function GET() {
+function dayKeyUTC(d: Date) {
+  return d.toISOString().slice(0, 10);
+}
+
+export async function GET(req: NextRequest) {
   await ensureMigrated();
-  const today = new Date();
+  const url = new URL(req.url);
+  const dateParam = url.searchParams.get("date");
+  const today = dateParam ? new Date(dateParam + "T12:00:00Z") : new Date();
   const start = new Date(today);
   start.setDate(start.getDate() - 7);
   const end = new Date(today);
   end.setDate(end.getDate() + 7);
 
-  const startISO = start.toISOString().slice(0, 10);
-  const endISO = end.toISOString().slice(0, 10);
+  const startISO = dayKeyUTC(start);
+  const endISO = dayKeyUTC(end);
 
   const rows = (await sql`
     SELECT id, date, type, template_key, duration_min, intensity FROM workout

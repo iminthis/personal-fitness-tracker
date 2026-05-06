@@ -1,19 +1,20 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { sql, getProfile, todayISO, ensureMigrated } from "@/lib/db";
 import { computeFlags } from "@/lib/redFlags";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    return await summaryHandler();
+    return await summaryHandler(req);
   } catch (e: any) {
     return NextResponse.json({ error: e.message, stack: e.stack }, { status: 500 });
   }
 }
 
-async function summaryHandler() {
+async function summaryHandler(req: NextRequest) {
   await ensureMigrated();
   const profile = await getProfile();
-  const today = todayISO();
+  const url = new URL(req.url);
+  const today = url.searchParams.get("date") || todayISO();
 
   const todayTotalsRows = (await sql`
     SELECT COALESCE(SUM(calories), 0)::int AS calories,
@@ -26,8 +27,8 @@ async function summaryHandler() {
     WITH dates AS (
       SELECT to_char(d, 'YYYY-MM-DD') AS date
       FROM generate_series(
-        (CURRENT_DATE - INTERVAL '29 days')::date,
-        CURRENT_DATE::date,
+        (${today}::date - INTERVAL '29 days'),
+        ${today}::date,
         '1 day'::interval
       ) AS d
     )

@@ -24,7 +24,11 @@ export default function Page() {
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   async function load() {
-    const r = await fetch("/api/summary");
+    const today = new Date();
+    const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 10);
+    const r = await fetch(`/api/summary?date=${localDate}`);
     setSum(await r.json());
   }
   useEffect(() => {

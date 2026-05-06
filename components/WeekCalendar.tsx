@@ -45,7 +45,11 @@ export function WeekCalendar() {
   const [rec, setRec] = useState<Recommendation | null>(null);
 
   useEffect(() => {
-    fetch("/api/schedule")
+    const today = new Date();
+    const localDate = new Date(today.getTime() - today.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 10);
+    fetch(`/api/schedule?date=${localDate}`)
       .then((r) => r.json())
       .then((d) => {
         setCalendar(d.calendar);
