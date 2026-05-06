@@ -1,10 +1,26 @@
-import { neon } from "@neondatabase/serverless";
+import { neon, NeonQueryFunction } from "@neondatabase/serverless";
 
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL is not set. Add it to .env.local (Neon connection string).");
+let _client: NeonQueryFunction<false, false> | null = null;
+function client(): NeonQueryFunction<false, false> {
+  if (_client) return _client;
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL is not set. On Vercel, add it under Project Settings → Environment Variables and redeploy.",
+    );
+  }
+  _client = neon(url);
+  return _client;
 }
 
-export const sql = neon(process.env.DATABASE_URL);
+export const sql: NeonQueryFunction<false, false> = new Proxy(((..._args: any[]) => {}) as any, {
+  get(_t, prop) {
+    return (client() as any)[prop];
+  },
+  apply(_t, _thisArg, args) {
+    return (client() as any)(...args);
+  },
+});
 
 let _migrated = false;
 let _migrating: Promise<void> | null = null;

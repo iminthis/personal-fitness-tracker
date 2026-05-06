@@ -3,6 +3,14 @@ import { sql, getProfile, todayISO, ensureMigrated } from "@/lib/db";
 import { computeFlags } from "@/lib/redFlags";
 
 export async function GET() {
+  try {
+    return await summaryHandler();
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message, stack: e.stack }, { status: 500 });
+  }
+}
+
+async function summaryHandler() {
   await ensureMigrated();
   const profile = await getProfile();
   const today = todayISO();
