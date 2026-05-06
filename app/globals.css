@@ -1,0 +1,32 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body {
+  background: #0a0a0b;
+  color: #e5e7eb;
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .panel {
+    @apply bg-panel border border-border rounded-xl;
+  }
+  .btn {
+    @apply px-3 py-2 rounded-md bg-panel border border-border hover:border-accent text-sm transition;
+  }
+  .btn-primary {
+    @apply px-3 py-2 rounded-md bg-accent text-black font-medium hover:opacity-90 text-sm transition;
+  }
+  .btn-danger {
+    @apply px-2 py-1 rounded-md bg-transparent border border-border hover:border-bad hover:text-bad text-xs transition;
+  }
+  .input {
+    @apply w-full bg-bg border border-border rounded-md px-3 py-2 text-sm focus:outline-none focus:border-accent;
+  }
+  .label {
+    @apply text-xs uppercase tracking-wider text-muted mb-1 block;
+  }
+  .stat-num { @apply text-2xl font-semibold; }
+  .stat-sub { @apply text-xs text-muted; }
+}
