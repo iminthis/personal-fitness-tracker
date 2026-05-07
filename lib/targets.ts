@@ -44,7 +44,8 @@ export function suggestTargets(opts: {
   const deficit = deficitByMode[mode];
   const calories = Math.round((t - deficit) / 10) * 10;
   const proteinAnchorKg = Math.max(opts.weightKg, opts.goalWeightKg ?? 0);
-  const proteinG = Math.round((proteinAnchorKg * 2.2 * 1.0) / 5) * 5;
+  const proteinPerLbByMode: Record<Mode, number> = { cut: 1.1, recomp: 1.15, maintain: 0.9, bulk: 0.9 };
+  const proteinG = Math.round((proteinAnchorKg * 2.20462 * proteinPerLbByMode[mode]) / 5) * 5;
   return {
     calories,
     proteinG,

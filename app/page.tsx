@@ -11,6 +11,7 @@ type Summary = {
   profile: any;
   today: string;
   todayTotals: { calories: number; protein_g: number };
+  todayBurnedKcal: number | null;
   todayFoods: Array<any>;
   todayWorkouts: Array<any>;
   last30: Array<any>;
@@ -129,8 +130,24 @@ export default function Page() {
       <section className="panel p-6">
         <div className="text-xs uppercase tracking-wider text-muted mb-3">Today</div>
         <div className="flex flex-wrap gap-8 items-start">
-          <Ring value={sum.todayTotals.calories} target={calTarget} label="Calories" />
+          <Ring value={sum.todayTotals.calories} target={calTarget} label="Calories in" />
           <Ring value={sum.todayTotals.protein_g} target={protTarget} label="Protein" unit="g" color="#84cc16" />
+          {sum.todayBurnedKcal != null && (
+            <div>
+              <div className="text-xs uppercase tracking-wider text-muted mb-1">Burned today</div>
+              <div className="stat-num">{sum.todayBurnedKcal.toLocaleString()}<span className="text-sm text-muted"> kcal</span></div>
+              <div className="stat-sub">Whoop daily expenditure</div>
+              {sum.todayTotals.calories > 0 && (() => {
+                const net = sum.todayTotals.calories - sum.todayBurnedKcal!;
+                const color = net < -100 ? "#10b981" : net > 100 ? "#f59e0b" : "#71717a";
+                return (
+                  <div className="text-xs mt-1" style={{ color }}>
+                    Net: {net > 0 ? "+" : ""}{net} kcal
+                  </div>
+                );
+              })()}
+            </div>
+          )}
           <div>
             <div className="text-xs uppercase tracking-wider text-muted mb-1">Workouts today</div>
             <div className="stat-num">{sum.todayWorkouts.length}</div>
@@ -177,7 +194,10 @@ export default function Page() {
       </section>
 
       <section className="panel p-4 space-y-4">
-        <MacroBars data={sum.last30.slice(-14)} field="calories" target={calTarget} color="#22d3ee" label="Calories (last 14 days)" />
+        <MacroBars data={sum.last30.slice(-14)} field="calories" target={calTarget} color="#22d3ee" label="Calories in (last 14 days)" />
+        {sum.last30.some((d: any) => d.burned_kcal != null) && (
+          <MacroBars data={sum.last30.slice(-14)} field="burned_kcal" target={calTarget} color="#f97316" label="Calories burned (last 14 days)" />
+        )}
         <MacroBars data={sum.last30.slice(-14)} field="protein_g" target={protTarget} color="#84cc16" label="Protein g (last 14 days)" />
       </section>
 

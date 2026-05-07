@@ -23,6 +23,13 @@ async function summaryHandler(req: NextRequest) {
   `) as Array<{ calories: number; protein_g: number }>;
   const todayTotals = todayTotalsRows[0] ?? { calories: 0, protein_g: 0 };
 
+  const burnedRows = (await sql`
+    SELECT kilojoule FROM whoop_cycle WHERE date = ${today}
+  `) as Array<{ kilojoule: number | null }>;
+  const todayBurnedKcal = burnedRows[0]?.kilojoule
+    ? Math.round(burnedRows[0].kilojoule * 0.239006)
+    : null;
+
   const last30 = (await sql`
     WITH dates AS (
       SELECT to_char(d, 'YYYY-MM-DD') AS date
@@ -41,7 +48,8 @@ async function summaryHandler(req: NextRequest) {
       (SELECT hrv_rmssd_ms FROM whoop_recovery wr WHERE wr.date = d.date) AS hrv,
       (SELECT resting_hr FROM whoop_recovery wr WHERE wr.date = d.date) AS rhr,
       (SELECT duration_min FROM whoop_sleep ws WHERE ws.date = d.date) AS sleep_min,
-      (SELECT strain FROM whoop_cycle wc WHERE wc.date = d.date) AS strain
+      (SELECT strain FROM whoop_cycle wc WHERE wc.date = d.date) AS strain,
+      (SELECT ROUND(kilojoule * 0.239006)::int FROM whoop_cycle wc WHERE wc.date = d.date) AS burned_kcal
     FROM dates d
     ORDER BY d.date ASC
   `) as Array<any>;
@@ -64,6 +72,7 @@ async function summaryHandler(req: NextRequest) {
     profile,
     today,
     todayTotals,
+    todayBurnedKcal,
     todayFoods,
     todayWorkouts,
     last30,
