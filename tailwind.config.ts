@@ -13,6 +13,8 @@ const config: Config = {
         good: "#10b981",
         warn: "#f59e0b",
         bad: "#ef4444",
+        warm: "#f5a623",
+        salmon: "#fb7185",
       },
       fontFamily: {
         sans: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
