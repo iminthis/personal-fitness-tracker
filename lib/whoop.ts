@@ -176,7 +176,23 @@ export async function syncWhoop(daysBack = 30) {
 
   const cycles = await collect("/v2/cycle", { start, end });
   for (const c of cycles) {
-    const date = dateOnly(c.start ?? c.created_at, c.timezone_offset);
+    // For ongoing cycles (no end), Whoop's `start` can be the prior evening even though
+    // the cycle is accumulating "today's" data. Date these by their most recent activity
+    // (updated_at) instead, which represents the day the user is currently in.
+    const anchor = c.end ? c.start : c.updated_at ?? c.start;
+    const date = dateOnly(anchor ?? c.created_at, c.timezone_offset);
+    // If this cycle was previously stored under a different (start-based) date, clean it up.
+    const cycleId = String(c.id ?? "");
+    if (cycleId) {
+      const startBased = dateOnly(c.start ?? c.created_at, c.timezone_offset);
+      if (startBased !== date) {
+        await sql`
+          DELETE FROM whoop_cycle
+          WHERE date = ${startBased}
+            AND raw::jsonb->>'id' = ${cycleId}
+        `;
+      }
+    }
     await sql`
       INSERT INTO whoop_cycle (date, strain, kilojoule, avg_hr, max_hr, raw)
       VALUES (${date}, ${c.score?.strain ?? null}, ${c.score?.kilojoule ?? null},
