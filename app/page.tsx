@@ -132,22 +132,39 @@ export default function Page() {
         <div className="flex flex-wrap gap-8 items-start">
           <Ring value={sum.todayTotals.calories} target={calTarget} label="Calories in" />
           <Ring value={sum.todayTotals.protein_g} target={protTarget} label="Protein" unit="g" color="#84cc16" />
-          {sum.todayBurnedKcal != null && (
-            <div>
-              <div className="text-xs uppercase tracking-wider text-muted mb-1">Burned today</div>
-              <div className="stat-num">{sum.todayBurnedKcal.toLocaleString()}<span className="text-sm text-muted"> kcal</span></div>
-              <div className="stat-sub">Whoop daily expenditure</div>
-              {sum.todayTotals.calories > 0 && (() => {
-                const net = sum.todayTotals.calories - sum.todayBurnedKcal!;
-                const color = net < -100 ? "#10b981" : net > 100 ? "#f59e0b" : "#71717a";
-                return (
-                  <div className="text-xs mt-1" style={{ color }}>
-                    Net: {net > 0 ? "+" : ""}{net} kcal
-                  </div>
-                );
-              })()}
-            </div>
-          )}
+          <div>
+            <div className="text-xs uppercase tracking-wider text-muted mb-1">Burned today</div>
+            {sum.todayBurnedKcal != null ? (
+              <>
+                <div className="stat-num">{sum.todayBurnedKcal.toLocaleString()}<span className="text-sm text-muted"> kcal</span></div>
+                <div className="stat-sub">Whoop daily expenditure</div>
+              </>
+            ) : (
+              <>
+                <div className="stat-num text-muted">—</div>
+                <div className="stat-sub">
+                  {sum.whoopConnected ? (
+                    <button onClick={syncWhoop} disabled={syncing} className="text-accent hover:underline">
+                      {syncing ? "syncing…" : "sync Whoop to update"}
+                    </button>
+                  ) : (
+                    "connect Whoop to track"
+                  )}
+                </div>
+              </>
+            )}
+            {sum.todayTotals.calories > 0 && (() => {
+              const burn = sum.todayBurnedKcal ?? calTarget;
+              const net = sum.todayTotals.calories - burn;
+              const color = net < -100 ? "#10b981" : net > 100 ? "#f59e0b" : "#71717a";
+              const label = sum.todayBurnedKcal != null ? "Net" : "Net vs target";
+              return (
+                <div className="text-xs mt-1" style={{ color }}>
+                  {label}: {net > 0 ? "+" : ""}{net.toLocaleString()} kcal
+                </div>
+              );
+            })()}
+          </div>
           <div>
             <div className="text-xs uppercase tracking-wider text-muted mb-1">Workouts today</div>
             <div className="stat-num">{sum.todayWorkouts.length}</div>
