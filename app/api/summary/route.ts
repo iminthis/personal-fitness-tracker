@@ -24,11 +24,13 @@ async function summaryHandler(req: NextRequest) {
   const todayTotals = todayTotalsRows[0] ?? { calories: 0, protein_g: 0 };
 
   const burnedRows = (await sql`
-    SELECT kilojoule FROM whoop_cycle WHERE date = ${today}
-  `) as Array<{ kilojoule: number | null }>;
-  const todayBurnedKcal = burnedRows[0]?.kilojoule
-    ? Math.round(burnedRows[0].kilojoule * 0.239006)
-    : null;
+    SELECT
+      COALESCE(
+        (SELECT burn_kcal_override FROM daily_log WHERE date = ${today}),
+        ROUND((SELECT kilojoule FROM whoop_cycle WHERE date = ${today}) * 0.239006)::int
+      ) AS burn_kcal
+  `) as Array<{ burn_kcal: number | null }>;
+  const todayBurnedKcal = burnedRows[0]?.burn_kcal ?? null;
 
   const last30 = (await sql`
     WITH dates AS (
@@ -49,7 +51,10 @@ async function summaryHandler(req: NextRequest) {
       (SELECT resting_hr FROM whoop_recovery wr WHERE wr.date = d.date) AS rhr,
       (SELECT duration_min FROM whoop_sleep ws WHERE ws.date = d.date) AS sleep_min,
       (SELECT strain FROM whoop_cycle wc WHERE wc.date = d.date) AS strain,
-      (SELECT ROUND(kilojoule * 0.239006)::int FROM whoop_cycle wc WHERE wc.date = d.date) AS burned_kcal
+      COALESCE(
+        (SELECT burn_kcal_override FROM daily_log dl WHERE dl.date = d.date),
+        (SELECT ROUND(kilojoule * 0.239006)::int FROM whoop_cycle wc WHERE wc.date = d.date)
+      ) AS burned_kcal
     FROM dates d
     ORDER BY d.date ASC
   `) as Array<any>;

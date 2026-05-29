@@ -42,6 +42,8 @@ export default function LogPage() {
   const [weight, setWeight] = useState("");
   const [bodyFat, setBodyFat] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
+  const [burnOverride, setBurnOverride] = useState("");
+  const [savingBurn, setSavingBurn] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
 
   useEffect(() => {
@@ -112,6 +114,17 @@ export default function LogPage() {
       body: JSON.stringify({ id, hidden }),
     });
     load();
+  }
+  async function saveBurn(e: React.FormEvent) {
+    e.preventDefault();
+    setSavingBurn(true);
+    await fetch("/api/log/burn", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date, burn_kcal: burnOverride === "" ? null : burnOverride }),
+    });
+    setBurnOverride("");
+    setSavingBurn(false);
   }
   async function saveWeight(e: React.FormEvent) {
     e.preventDefault();
@@ -275,6 +288,18 @@ export default function LogPage() {
             <input className="input" type="number" step="0.1" placeholder="27.2" value={bodyFat} onChange={(e) => setBodyFat(e.target.value)} />
           </div>
           <button className="btn-primary" disabled={savingWeight}>{savingWeight ? "Saving…" : "Save"}</button>
+        </form>
+      </section>
+
+      <section className="panel p-4">
+        <h2 className="font-medium mb-1">Burn override</h2>
+        <p className="text-xs text-muted mb-3">Use this when Whoop coverage was incomplete (took off the strap, dead battery, etc.). Overrides the Whoop number for this date. Leave blank + save to clear.</p>
+        <form onSubmit={saveBurn} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+          <div className="md:col-span-2">
+            <span className="label">Estimated burn (kcal)</span>
+            <input className="input" type="number" step="50" placeholder="2400" value={burnOverride} onChange={(e) => setBurnOverride(e.target.value)} />
+          </div>
+          <button className="btn-primary" disabled={savingBurn}>{savingBurn ? "Saving…" : "Save"}</button>
         </form>
       </section>
     </div>

@@ -61,9 +61,11 @@ async function runMigrations() {
       protein_g INTEGER DEFAULT 0,
       weight_kg REAL,
       body_fat_pct REAL,
+      burn_kcal_override INTEGER,
       notes TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )`;
+  await sql`ALTER TABLE daily_log ADD COLUMN IF NOT EXISTS burn_kcal_override INTEGER`;
 
   await sql`
     CREATE TABLE IF NOT EXISTS food_entry (
