@@ -176,12 +176,15 @@ export async function syncWhoop(daysBack = 30) {
 
   const cycles = await collect("/v2/cycle", { start, end });
   for (const c of cycles) {
-    // For ongoing cycles (no end), Whoop's `start` can be the prior evening even though
-    // the cycle is accumulating "today's" data. Date these by their most recent activity
-    // (updated_at) instead, which represents the day the user is currently in.
-    const anchor = c.end ? c.start : c.updated_at ?? c.start;
-    const date = dateOnly(anchor ?? c.created_at, c.timezone_offset);
-    // If this cycle was previously stored under a different (start-based) date, clean it up.
+    // Whoop's cycle.start can be the prior evening for users who go to bed early
+    // (e.g. start = Sun 6pm PT, cycle actually accumulates Mon's activity).
+    // Use the midpoint between start and end (or now, if ongoing) — this always
+    // lands in the day the user is mostly awake during.
+    const startMs = c.start ? new Date(c.start).getTime() : Date.now();
+    const endMs = c.end ? new Date(c.end).getTime() : Date.now();
+    const midpointISO = new Date((startMs + endMs) / 2).toISOString();
+    const date = dateOnly(midpointISO, c.timezone_offset);
+    // Clean up any stale row at the old start-based date for this same cycle ID.
     const cycleId = String(c.id ?? "");
     if (cycleId) {
       const startBased = dateOnly(c.start ?? c.created_at, c.timezone_offset);
