@@ -45,9 +45,9 @@ const DINNER: DinnerOption[] = [
   {
     name: "Turkey",
     color: "warm",
-    macros: "550 · 53g",
+    macros: "550 · 43g",
     items: [
-      { food: "8 oz raw ground turkey 93/7", macros: "300 · 48g" },
+      { food: "8 oz raw ground turkey 93/7", macros: "300 · 38g" },
       { food: "½ avocado", macros: "120 · 2g" },
       { food: "sweet potato or veggie", macros: "130 · 3g" },
     ],
@@ -77,8 +77,8 @@ const DINNER: DinnerOption[] = [
 const VEGGIES = [
   { food: "Broccoli", note: "(120g)", macros: "~160 · 4g" },
   { food: "Brussels sprouts", note: "(170g)", macros: "~200 · 6g" },
-  { food: "Mushrooms", note: "(soak up the most fat)", macros: "~150 · 4g" },
-  { food: "Squash", note: "(roasts well)", macros: "~160 · 3g" },
+  { food: "Cremini, sliced", note: "(150g · soaks up the most fat)", macros: "~150 · 4g" },
+  { food: "Squash", note: "(150g · roasts well)", macros: "~160 · 3g" },
 ];
 
 function MealCard({ meal }: { meal: Meal }) {
