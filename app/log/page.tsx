@@ -42,9 +42,21 @@ export default function LogPage() {
   const [weight, setWeight] = useState("");
   const [bodyFat, setBodyFat] = useState("");
   const [savingWeight, setSavingWeight] = useState(false);
+  const [weightMsg, setWeightMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [recentWeights, setRecentWeights] = useState<any[]>([]);
   const [burnOverride, setBurnOverride] = useState("");
   const [savingBurn, setSavingBurn] = useState(false);
+  const [burnMsg, setBurnMsg] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+
+  async function loadRecentWeights() {
+    const r = await fetch("/api/log/weight");
+    const j = await r.json();
+    setRecentWeights(j.rows || []);
+  }
+  useEffect(() => {
+    loadRecentWeights();
+  }, []);
 
   useEffect(() => {
     const today = new Date();
@@ -118,25 +130,42 @@ export default function LogPage() {
   async function saveBurn(e: React.FormEvent) {
     e.preventDefault();
     setSavingBurn(true);
-    await fetch("/api/log/burn", {
+    setBurnMsg(null);
+    const r = await fetch("/api/log/burn", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date, burn_kcal: burnOverride === "" ? null : burnOverride }),
     });
-    setBurnOverride("");
+    const j = await r.json();
+    if (j.ok) {
+      setBurnMsg(burnOverride === "" ? `Cleared override for ${date}.` : `Saved ${burnOverride} kcal override for ${date}.`);
+      setBurnOverride("");
+    } else {
+      setBurnMsg(`Error: ${j.error || "failed"}`);
+    }
     setSavingBurn(false);
   }
   async function saveWeight(e: React.FormEvent) {
     e.preventDefault();
     setSavingWeight(true);
-    const weight_kg = weight ? parseFloat(weight) / 2.20462 : null;
-    await fetch("/api/log/weight", {
+    setWeightMsg(null);
+    const weight_kg = weight !== "" ? parseFloat(weight) / 2.20462 : null;
+    const r = await fetch("/api/log/weight", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ date, weight_kg, body_fat_pct: bodyFat || null }),
     });
-    setWeight("");
-    setBodyFat("");
+    const j = await r.json();
+    if (j.ok && j.saved) {
+      const wt = j.saved.weight_kg ? `${(j.saved.weight_kg * 2.20462).toFixed(1)} lb` : "—";
+      const bf = j.saved.body_fat_pct ? `${j.saved.body_fat_pct}%` : "—";
+      setWeightMsg({ ok: true, text: `Saved for ${j.saved.date}: ${wt} · ${bf} BF` });
+      setWeight("");
+      setBodyFat("");
+      loadRecentWeights();
+    } else {
+      setWeightMsg({ ok: false, text: j.error || "Save failed" });
+    }
     setSavingWeight(false);
   }
 
@@ -277,18 +306,35 @@ export default function LogPage() {
       </div>
 
       <section className="panel p-4">
-        <h2 className="font-medium mb-3">Body</h2>
+        <h2 className="font-medium mb-1">Body</h2>
+        <p className="text-xs text-muted mb-3">Log weight as often as you can — ideally same time/conditions (morning, fasted). <span className="text-white">Body fat is optional</span>; only fill it in when you actually measure (DEXA, InBody, calipers, etc.). Leave blank otherwise — past values are preserved.</p>
         <form onSubmit={saveWeight} className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
           <div>
             <span className="label">Weight (lb)</span>
             <input className="input" type="number" step="0.1" placeholder="176" value={weight} onChange={(e) => setWeight(e.target.value)} />
           </div>
           <div>
-            <span className="label">Body fat %</span>
-            <input className="input" type="number" step="0.1" placeholder="27.2" value={bodyFat} onChange={(e) => setBodyFat(e.target.value)} />
+            <span className="label">Body fat % <span className="text-muted normal-case tracking-normal">(optional)</span></span>
+            <input className="input" type="number" step="0.1" placeholder="leave blank if not measuring" value={bodyFat} onChange={(e) => setBodyFat(e.target.value)} />
           </div>
           <button className="btn-primary" disabled={savingWeight}>{savingWeight ? "Saving…" : "Save"}</button>
         </form>
+        {weightMsg && (
+          <div className={`text-xs mt-2 ${weightMsg.ok ? "text-good" : "text-bad"}`}>{weightMsg.text}</div>
+        )}
+        {recentWeights.length > 0 && (
+          <div className="mt-4">
+            <div className="text-xs uppercase tracking-wider text-muted mb-2">Recent ({recentWeights.length})</div>
+            <ul className="text-xs space-y-0.5 max-h-48 overflow-y-auto">
+              {recentWeights.map((r) => (
+                <li key={r.date} className="flex justify-between gap-2 tabular-nums">
+                  <span className="text-muted">{r.date}</span>
+                  <span>{r.weight_kg ? `${(r.weight_kg * 2.20462).toFixed(1)} lb` : "—"} · {r.body_fat_pct ? `${r.body_fat_pct}% BF` : ""}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </section>
 
       <section className="panel p-4">
@@ -301,6 +347,7 @@ export default function LogPage() {
           </div>
           <button className="btn-primary" disabled={savingBurn}>{savingBurn ? "Saving…" : "Save"}</button>
         </form>
+        {burnMsg && <div className="text-xs text-good mt-2">{burnMsg}</div>}
       </section>
     </div>
   );
