@@ -1,8 +1,5 @@
-import type { Metadata } from "next";
-
-export const metadata: Metadata = {
-  title: "Meals · Daily Template",
-};
+"use client";
+import { useEffect, useState } from "react";
 
 type Item = { food: string; sub?: string; macros: string };
 type Meal = { name: string; tag?: string; macros: string; items: Item[] };
@@ -134,21 +131,49 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+const TEMPLATE_KCAL_MIN = 2290;
+const TEMPLATE_KCAL_MAX = 2370;
+const TEMPLATE_KCAL_MID = (TEMPLATE_KCAL_MIN + TEMPLATE_KCAL_MAX) / 2;
+const TEMPLATE_PROT_MIN = 206;
+const TEMPLATE_PROT_MAX = 226;
+
 export default function MealsPage() {
+  const [profile, setProfile] = useState<any>(null);
+
+  useEffect(() => {
+    fetch("/api/profile")
+      .then((r) => r.json())
+      .then((j) => setProfile(j.profile));
+  }, []);
+
+  const calTarget = profile?.calorie_target ?? 2300;
+  const protTarget = profile?.protein_target_g ?? 200;
+  const calDelta = Math.round(calTarget - TEMPLATE_KCAL_MID);
+  const showDelta = Math.abs(calDelta) >= 100;
+
   return (
     <div className="space-y-3 max-w-2xl mx-auto">
       <header>
         <div className="text-xs uppercase tracking-[0.16em] text-accent font-semibold">Daily Template</div>
-        <h1 className="text-3xl font-extrabold tracking-tight mt-1">Hit 2,300 &amp; 200g</h1>
+        <h1 className="text-3xl font-extrabold tracking-tight mt-1">Hit {calTarget.toLocaleString()} &amp; {protTarget}g</h1>
         <div className="flex gap-2.5 mt-3.5">
           <div className="flex-1 panel p-3">
-            <div className="text-2xl font-extrabold tracking-tight text-accent">2,290–2,370</div>
-            <div className="text-[11px] text-muted uppercase tracking-wider">kcal</div>
+            <div className="text-2xl font-extrabold tracking-tight text-accent">{calTarget.toLocaleString()}</div>
+            <div className="text-[11px] text-muted uppercase tracking-wider">kcal target</div>
           </div>
           <div className="flex-1 panel p-3">
-            <div className="text-2xl font-extrabold tracking-tight">206–226g</div>
-            <div className="text-[11px] text-muted uppercase tracking-wider">protein</div>
+            <div className="text-2xl font-extrabold tracking-tight">{protTarget}g</div>
+            <div className="text-[11px] text-muted uppercase tracking-wider">protein target</div>
           </div>
+        </div>
+        <div className="text-xs text-muted mt-2">
+          Template baseline hits ~{TEMPLATE_KCAL_MIN.toLocaleString()}–{TEMPLATE_KCAL_MAX.toLocaleString()} kcal · {TEMPLATE_PROT_MIN}–{TEMPLATE_PROT_MAX}g protein.
+          {showDelta && calDelta > 0 && (
+            <span> Your target is <span className="text-white">+{calDelta} kcal</span> higher — use the "if you're off target" levers below to bridge the gap.</span>
+          )}
+          {showDelta && calDelta < 0 && (
+            <span> Your target is <span className="text-white">{calDelta} kcal</span> lower — pick chicken night (lowest cal) and drop the snack or ½ avocado.</span>
+          )}
         </div>
       </header>
 
