@@ -5,6 +5,36 @@ export default function GoalsPage() {
   const [p, setP] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [mDays, setMDays] = useState(30);
+  const [mResult, setMResult] = useState<any>(null);
+  const [mLoading, setMLoading] = useState(false);
+  const [mApplying, setMApplying] = useState(false);
+  const [mMsg, setMMsg] = useState<string | null>(null);
+
+  async function calcMaintenance() {
+    setMLoading(true);
+    setMMsg(null);
+    const r = await fetch(`/api/maintenance?days=${mDays}`);
+    setMResult(await r.json());
+    setMLoading(false);
+  }
+  async function applyMaintenance() {
+    if (!mResult?.maintenance_kcal) return;
+    setMApplying(true);
+    const r = await fetch("/api/maintenance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ maintenance_kcal: mResult.maintenance_kcal }),
+    });
+    const j = await r.json();
+    if (j.ok) {
+      setMMsg(`Calorie target updated to ${j.new_calorie_target} kcal (${j.mode} mode, −${j.deficit_applied} deficit from maintenance).`);
+      await load();
+    } else {
+      setMMsg(`Error: ${j.error || "failed"}`);
+    }
+    setMApplying(false);
+  }
 
   async function load() {
     const r = await fetch("/api/profile");
@@ -97,6 +127,82 @@ export default function GoalsPage() {
           <button className="btn-primary" onClick={() => save(true)} disabled={saving}>Save + recompute targets</button>
         </div>
         {msg && <div className="text-xs text-good">{msg}</div>}
+      </section>
+
+      <section className="panel p-5 space-y-3">
+        <div>
+          <h2 className="font-medium">Recalculate maintenance from real data</h2>
+          <p className="text-xs text-muted mt-1">Back-solves your true maintenance using <span className="text-white">actual weight change + logged intake</span> over a window. More accurate than any formula — and stays accurate as your body changes.</p>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <span className="label">Window (days)</span>
+            <input
+              className="input max-w-[100px]"
+              type="number"
+              min={7}
+              max={120}
+              value={mDays}
+              onChange={(e) => setMDays(parseInt(e.target.value) || 30)}
+            />
+          </div>
+          <button className="btn-primary" onClick={calcMaintenance} disabled={mLoading}>
+            {mLoading ? "Calculating…" : "Calculate"}
+          </button>
+          <span className="text-xs text-muted">28-60 days is the sweet spot — long enough to smooth water noise, short enough to reflect your current self.</span>
+        </div>
+
+        {mResult && (
+          <div className="border-t border-border pt-3 space-y-2 text-sm">
+            {mResult.method === "energy-balance" ? (
+              <>
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <div>
+                    <span className="text-xs text-muted">Maintenance</span>
+                    <div className="stat-num text-accent">{mResult.maintenance_kcal} <span className="text-sm text-muted">kcal/day</span></div>
+                  </div>
+                  <div className="text-xs text-muted">
+                    method: <span className="text-white">energy balance</span> · confidence: <span className={mResult.confidence === "high" ? "text-good" : mResult.confidence === "medium" ? "text-warn" : "text-bad"}>{mResult.confidence}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                  <div><div className="text-muted">Window</div><div>{mResult.start_date} → {mResult.end_date} ({mResult.span_days}d)</div></div>
+                  <div><div className="text-muted">Weight change</div><div>{mResult.start_weight_lb} → {mResult.end_weight_lb} lb ({mResult.weight_change_lb > 0 ? "+" : ""}{mResult.weight_change_lb} lb)</div></div>
+                  <div><div className="text-muted">Days logged</div><div>{mResult.days_logged} / {mResult.days_window}</div></div>
+                  <div><div className="text-muted">Avg intake</div><div>{mResult.avg_intake_kcal} kcal</div></div>
+                  <div><div className="text-muted">Avg Whoop burn</div><div>{mResult.avg_whoop_burn_kcal ?? "—"} kcal</div></div>
+                  <div><div className="text-muted">Current saved target</div><div>{p.calorie_target} kcal</div></div>
+                </div>
+              </>
+            ) : mResult.method === "whoop-burn" ? (
+              <div>
+                <div>
+                  <span className="text-xs text-muted">Maintenance (fallback)</span>
+                  <div className="stat-num text-warn">{mResult.maintenance_kcal} <span className="text-sm text-muted">kcal/day</span></div>
+                </div>
+                <div className="text-xs text-muted mt-1">method: <span className="text-white">Whoop average</span> · need weights + intake data for energy-balance accuracy</div>
+              </div>
+            ) : (
+              <div className="text-bad text-sm">Not enough data to calculate. Log weights + food consistently for at least 7 days.</div>
+            )}
+
+            {mResult.notes?.length > 0 && (
+              <ul className="text-xs text-muted list-disc pl-4 space-y-0.5">
+                {mResult.notes.map((n: string, i: number) => <li key={i}>{n}</li>)}
+              </ul>
+            )}
+
+            {mResult.maintenance_kcal && (
+              <div className="flex gap-2 pt-1">
+                <button className="btn-primary" onClick={applyMaintenance} disabled={mApplying}>
+                  {mApplying ? "Applying…" : "Apply to calorie target"}
+                </button>
+                <span className="text-xs text-muted self-center">Will set calorie target = maintenance − mode deficit</span>
+              </div>
+            )}
+            {mMsg && <div className="text-xs text-good">{mMsg}</div>}
+          </div>
+        )}
       </section>
 
       {goalWeightKg != null && muscleToGain != null && fatToLoseRecomp != null ? (
