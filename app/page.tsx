@@ -74,8 +74,12 @@ export default function Page() {
   };
 
   const workoutsLast30 = sum.last30.filter((d) => d.workouts > 0).length;
-  const daysHitProtein = sum.last30.filter((d) => d.protein_g >= protTarget * 0.9).length;
-  const daysHitCalories = sum.last30.filter((d) => d.calories <= calTarget * 1.05 && d.calories >= calTarget * 0.7).length;
+  const loggedDays = sum.last30.filter((d) => d.calories > 0 || d.protein_g > 0);
+  const loggedDaysCount = loggedDays.length;
+  const daysHitProtein = loggedDays.filter((d) => d.protein_g >= protTarget * 0.9).length;
+  const daysHitCalories = loggedDays.filter((d) => d.calories <= calTarget * 1.05 && d.calories >= calTarget * 0.7).length;
+  const proteinPct = loggedDaysCount > 0 ? Math.round((daysHitProtein / loggedDaysCount) * 100) : 0;
+  const caloriesPct = loggedDaysCount > 0 ? Math.round((daysHitCalories / loggedDaysCount) * 100) : 0;
 
   const lastRecovery = [...sum.last30].reverse().find((d) => d.recovery != null);
 
@@ -193,16 +197,22 @@ export default function Page() {
           <div className="stat-sub">{((workoutsLast30 / 30) * 100).toFixed(0)}% consistency</div>
         </div>
         <div className="panel p-4">
-          <div className="text-xs uppercase tracking-wider text-muted mb-1">Protein hit (30d)</div>
-          <div className="stat-num">{daysHitProtein}<span className="text-sm text-muted">/30</span></div>
-          <div className="stat-sub">days at ≥90% of target</div>
+          <div className="text-xs uppercase tracking-wider text-muted mb-1">Protein hit</div>
+          <div className="stat-num">{daysHitProtein}<span className="text-sm text-muted">/{loggedDaysCount}</span></div>
+          <div className="stat-sub">{proteinPct}% of logged days ≥90% of target</div>
         </div>
         <div className="panel p-4">
-          <div className="text-xs uppercase tracking-wider text-muted mb-1">Calories in range (30d)</div>
-          <div className="stat-num">{daysHitCalories}<span className="text-sm text-muted">/30</span></div>
-          <div className="stat-sub">70-105% of target</div>
+          <div className="text-xs uppercase tracking-wider text-muted mb-1">Calories in range</div>
+          <div className="stat-num">{daysHitCalories}<span className="text-sm text-muted">/{loggedDaysCount}</span></div>
+          <div className="stat-sub">{caloriesPct}% of logged days 70-105% of target</div>
         </div>
       </section>
+
+      {loggedDaysCount < 30 && (
+        <div className="text-xs text-muted -mt-3 px-1">
+          <span className="text-white">{loggedDaysCount}</span> of last 30 days have food logged. Unlogged days are excluded from stats and averages — they're not treated as 0 kcal / 0g protein.
+        </div>
+      )}
 
       <section className="panel p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
         <Heatmap title="Calories (30d)" data={sum.last30} getValue={(d) => d.calories} colorFor={calColor} />

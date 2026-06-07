@@ -71,15 +71,17 @@ Keep total response under 200 words. Reference the user's actual numbers. No flu
 - Daily targets: ${ctx.profile?.calorie_target} kcal, ${ctx.profile?.protein_target_g}g protein
 - Activity: ${ctx.profile?.activity_level}
 
-Last 14 days (most recent first):
+Last 14 days (most recent first; "-" = not logged, not zero):
 ${ctx.recentDays
-  .map(
-    (r) =>
-      `${r.date} | kcal=${r.calories} | protein=${r.protein_g}g | wt=${r.weight_kg ?? "-"}kg | workouts=${r.workouts} | recovery=${r.recovery ?? "-"} | hrv=${r.hrv ?? "-"} | rhr=${r.rhr ?? "-"} | sleep=${r.sleep_min ?? "-"}min | strain=${r.strain ?? "-"}`,
-  )
+  .map((r) => {
+    const logged = r.calories > 0 || r.protein_g > 0;
+    const kcal = logged ? `${r.calories}` : "-";
+    const prot = logged ? `${r.protein_g}g` : "-";
+    return `${r.date} | kcal=${kcal} | protein=${prot} | wt=${r.weight_kg ?? "-"}kg | workouts=${r.workouts} | recovery=${r.recovery ?? "-"} | hrv=${r.hrv ?? "-"} | rhr=${r.rhr ?? "-"} | sleep=${r.sleep_min ?? "-"}min | strain=${r.strain ?? "-"}`;
+  })
   .join("\n")}
 
-Give actionable feedback.`;
+Give actionable feedback based on logged days only — do not penalize unlogged days as "no eating".`;
 
   const resp = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
