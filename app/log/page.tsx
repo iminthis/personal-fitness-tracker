@@ -159,7 +159,9 @@ export default function LogPage() {
     if (j.ok && j.saved) {
       const wt = j.saved.weight_kg ? `${(j.saved.weight_kg * 2.20462).toFixed(1)} lb` : "—";
       const bf = j.saved.body_fat_pct ? `${j.saved.body_fat_pct}%` : "—";
-      setWeightMsg({ ok: true, text: `Saved for ${j.saved.date}: ${wt} · ${bf} BF` });
+      const syncWt = j.profile_synced?.weight_lb;
+      const tail = syncWt ? ` · profile updated to ${syncWt} lb` : "";
+      setWeightMsg({ ok: true, text: `Saved for ${j.saved.date}: ${wt} · ${bf} BF${tail}` });
       setWeight("");
       setBodyFat("");
       loadRecentWeights();
